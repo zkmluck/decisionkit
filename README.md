@@ -44,35 +44,61 @@ decisionkit serve --model models/linear.npz --port 8765
 
 不想装包也行:`PYTHONPATH=src python -m decisionkit ...`。
 
-## 实测数字
+## 真实数据上的结果
 
-上面那几条命令在本机(Windows、Python 3.10、纯 CPU、无 GPU)的真实输出:
+数据用 agent-jev 评测的那份公开集:`LocalLLaMA/typed-decisions` 的官方 train/test 划分,标签是教师给的软分布。导入、训练、评测三条命令:
+
+```bash
+python tools/import_typed_decisions.py --out data/typed-decisions
+decisionkit train --train data/typed-decisions/train.jsonl \
+                  --validation data/typed-decisions/calibration.jsonl \
+                  --output models/typed-decisions.npz
+decisionkit evaluate --data data/typed-decisions/test.jsonl --model models/typed-decisions.npz
+```
+
+导入得到 1200 个官方训练案例、400 个官方测试案例,每个案例 5 道题,共 8000 道,零题被跳过。官方划分没有开发集,所以我把训练案例里每第 10 个留作温度校准(120 个),训练用剩下的 1080 个;测试集原样使用,和训练没有任何案例重叠。
 
 ```text
-synth      400 个案例 → train 280 / validation 60 / test 60
-train      16 epoch,每 epoch 756 次更新,训练损失 0.781 → 0.616
-eval       60 个案例 / 159 道决策
-           温度(boolean / choice / score)= 1.0362 / 0.9651 / 1.0362
+train   1080 案例 / 每 epoch 5400 次更新 / 16 epoch,损失 1.151 → 0.965
+        温度(boolean / choice / score)= 2.110 / 1.965 / 2.265
+eval    400 案例 / 2000 道决策(官方测试集)
 ```
 
 | 指标 | 未校准 | 校准后 |
 | --- | ---: | ---: |
-| 与教师 argmax 的一致率 | 1.000 | 1.000 |
-| Macro-F1 | 1.000 | 1.000 |
-| Brier(按候选求和)↓ | 0.0557 | 0.0576 |
-| NLL ↓ | 0.2051 | 0.2088 |
-| ECE(10 等宽)↓ | 0.1838 | 0.1868 |
-| 判定覆盖率 | 1.000 | 1.000 |
+| 与教师 argmax 的一致率 | 0.615 | 0.615 |
+| Macro-F1 | 0.509 | 0.509 |
+| Brier(按候选求和)↓ | 0.5225 | **0.5085** |
+| NLL ↓ | 0.9289 | **0.8929** |
+| ECE(10 等宽)↓ | 0.1060 | **0.0626** |
+| 判定覆盖率(过 0.6 阈值) | 0.699 | 0.370 |
+| 下了判断的那些里答对的比例 | 0.689 | **0.780** |
+| 每案例延迟 p50 / p95 | 12.33 / 22.24 ms | 12.54 / 22.26 ms |
 
-每案例延迟 p50 1.82 ms、p95 2.74 ms(校准前);**生成 token 数 0**。
+**生成 token 数 0。** 校准不改变 argmax,所以一致率不动;它改的是概率本身——ECE 从 0.106 降到 0.063,代价是敢下判断的比例从 70% 掉到 37%,而那 37% 里有 78% 是对的。"要么说准、要么承认不确定"这个取舍才是校准该带来的东西。
+
+同一份官方测试集上,agent-jev 公布的 AgentJev-0.6B 是 **79.25%(1585/2000)**、CE 0.8494、Brier 0.0448。这份 CPU 线性基线是 **61.5%**,差 17.75 个百分点——这就是"不下载权重、不用显卡、训练一分半钟"的代价,而不是"打平"。
+
+## 合成数据(只是流水线自检)
+
+```bash
+decisionkit synth --out data/synthetic --cases 400
+decisionkit train --train data/synthetic/train.jsonl \
+                  --validation data/synthetic/validation.jsonl --output models/linear.npz
+decisionkit evaluate --data data/synthetic/test.jsonl --model models/linear.npz
+```
+
+400 个自造案例(280/60/60),在这上面一致率 1.000、每案例 p50 1.82 ms、生成 token 0 个。**这个 100% 什么都不能证明**:数据是按固定提示词造的,模型学到的就是那些提示词;它的用处是证明流水线通了。校准在这里几乎不动(温度 ≈ 1.04),因为模型本来就不过度自信——换成真实数据立刻不一样,见上表。
 
 ## 这些数字怎么读
 
-**合成任务上的 100% 什么都不能证明。** 那批数据是按固定提示词生成的,模型学到的就是那些提示词;它证明的是流水线通了——特征、损失、训练、校准、指标、服务能串起来——不是任何真实任务上的能力。真实数据请只看 NLL、Brier 和校准曲线。
+**标签是教师分布,不是人工金标。** 一致率指"与公开教师分布 argmax 的一致率",和 agent-jev 表里同名字段同口径;它不等于任务成功率。
 
-**ECE 在这里有个天然地板。** 标签是按 0.85/0.15 平滑过的软分布,而 ECE 现在是拿"预测最大项"和"是否命中 argmax"比:一个完全学对的模型,置信度也只会收敛到 0.85 附近,对硬标签算 ECE 自然有约 0.15 的地板。所以 ECE 要跟 NLL 一起看,单独看会误判。
+**Brier / CE / ECE 各家定义可能不同,别跨表硬比。** 这里 Brier 是"每个决策按候选求 (p−q)² 求和,再对决策取平均";CE 是软标签交叉熵;ECE 是 10 个等宽区间,拿最大概率和是否命中 argmax 比。对着别的表格引数字前先核对定义。
 
-**校准在这份数据上几乎没动。** 温度拟合出来接近 1,因为模型本来就不算过度自信;`calibration.py` 的价值在模型过度自信时才显现(比如拿硬标签训练)。这里把它跑通、把接口留好,比假装它带来了提升更诚实。
+**和 agent-jev 不是等预算比较。** 它是 0.6B 的决策 transformer、GPU 训练,而且在 1200 个训练案例里留出 120 开发 + 120 校准;这里是线性打分器 + 哈希特征、CPU、1080 训练 + 120 校准。那 17.75 个百分点是模型类别的差距。
+
+**覆盖率和一致率要一起看。** 0.6 这个阈值是随手定的,不是验证过的放行线;改 `min_probability` 就是在"多下判断"和"下得准"之间挪动,真正上线得用你自己的数据把这条线定下来。
 
 ## 输入输出
 
@@ -116,7 +142,8 @@ HTTP 返回的形状(与 agent-jev 一类接口保持一致):
 | `src/decisionkit/service.py`、`client.py` | 只绑 127.0.0.1 的 HTTP 服务与标准库客户端 |
 | `src/decisionkit/synth.py` | 确定性合成数据与按案例切分 |
 | `src/decisionkit/cli.py` | `synth` / `train` / `evaluate` / `serve` / `verify` |
-| `tests/` | 21 个测试:契约拒绝、置换等变、度量手算、训练效果、服务往返 |
+| `tools/import_typed_decisions.py` | 把公开的 typed-decisions 数据集转成本项目的 JSONL(带重试与分页) |
+| `tests/` | 26 个测试:契约拒绝、置换等变、度量手算、训练效果、服务往返、导入器映射 |
 
 ## 限制
 
@@ -129,7 +156,7 @@ HTTP 返回的形状(与 agent-jev 一类接口保持一致):
 
 ```bash
 pip install -e '.[test]'
-python -m pytest -q      # 21 passed
+python -m pytest -q      # 26 passed
 ```
 
 ---
@@ -141,8 +168,13 @@ inference: give it a state and typed questions (`boolean` / `choice` / `score`)
 and it returns a full probability distribution per question, with zero decoded
 tokens and no GPU or downloaded weights. It ships a trainable hashed-feature
 scorer, per-primitive temperature calibration, metrics (accuracy, macro-F1,
-Brier, NLL, ECE, coverage, latency), a loopback HTTP service and a stdlib
-client. It is positioned as the no-GPU baseline next to transformer decision
-heads such as agent-jev, not as a competitor to them: the 100% figure on the
-synthetic task is a pipeline check, and the ECE floor on smoothed labels is
-explained above.
+Brier, NLL, ECE, coverage, latency), a loopback HTTP service, a stdlib client,
+and an importer for the public `LocalLLaMA/typed-decisions` benchmark.
+
+On that benchmark's official test split (400 cases, 2000 decisions) the linear
+CPU baseline agrees with the teacher argmax on **61.5%** of decisions, against
+**79.25%** published for the 0.6B GPU decision model on the same split. The
+point of the number is the cost: no weights to download, ~90 seconds of CPU
+training, ~12 ms per case. Temperature calibration leaves the argmax alone,
+cuts ECE from 0.106 to 0.063, and turns the 0.6 threshold into a 37% coverage /
+78% precision operating point. The synthetic suite is only a pipeline check.

@@ -43,7 +43,7 @@ def load(path) -> DecisionModel:
 
 
 def fit_temperatures(scorer, rows) -> dict:
-    from .calibration import fit_temperature
+    from .calibration import fit_temperature_multi
     from .train import row_examples
 
     collected: dict[str, list] = {}
@@ -54,8 +54,7 @@ def fit_temperatures(scorer, rows) -> dict:
             collected.setdefault(kind, []).append((scorer.logits(candidate_rows), target))
     temperatures = {}
     for kind, pairs in collected.items():
-        temperature, _ = fit_temperature(np.stack([pair[0] for pair in pairs]),
-                                         np.stack([pair[1] for pair in pairs]))
+        temperature, _ = fit_temperature_multi(pairs)
         temperatures[kind] = temperature
     return temperatures
 
