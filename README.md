@@ -2,6 +2,10 @@
 
 **状态进,分布出,零 token 解码,没有 GPU。** 一个用 numpy 写成的"类型化决策"参考实现:给它一段无结构状态和几道结构化问题,它直接返回每个候选的概率分布——不生成答案文本,不下载模型权重,不需要显卡。
 
+[![tests](https://github.com/zkmluck/decisionkit/actions/workflows/tests.yml/badge.svg)](https://github.com/zkmluck/decisionkit/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/code-MIT-black)](LICENSE)
+[![Data: Apache-2.0](https://img.shields.io/badge/data-Apache--2.0-black)](data/typed-decisions/LICENSE.txt)
+
 ## 为什么做这个
 
 [agent-jev](https://github.com/malevrigns/agent-jev) 那类 System One 决策模型证明了路线:很多 Agent 步骤要的不是写作,而是一个判断,那就别让模型把答案一个 token 一个 token 地写出来,直接对候选打分。但那条路要 Qwen3-0.6B 加 CUDA 环境。
@@ -160,6 +164,7 @@ HTTP 返回的形状(与 agent-jev 一类接口保持一致):
 | `tools/import_typed_decisions.py` | 把公开的 typed-decisions 数据集转成本项目的 JSONL(带重试与分页) |
 | `data/typed-decisions/` | 随仓库发布的转换后评测数据、出处与许可(Apache-2.0) |
 | `models/typed-decisions.npz` | 随仓库发布的基线模型:在 1080 个案例上训练 16 epoch |
+| `.github/workflows/tests.yml` | CI:ubuntu 与 windows 上跑 Python 3.10 / 3.12,并离线评测一次基线 |
 | `tests/` | 26 个测试:契约拒绝、置换等变、度量手算、训练效果、服务往返、导入器映射 |
 
 ## 限制
@@ -167,7 +172,13 @@ HTTP 返回的形状(与 agent-jev 一类接口保持一致):
 - 模型是**线性打分器 + 哈希特征**,不是 transformer。同义词、长距离推理、跨域迁移都不要指望它。
 - 合成数据自造、无人工金标、无多 seed、无并发压测;这里所有数字都是本机 CPU 上的单次结果。
 - 服务没有鉴权,默认只绑 `127.0.0.1`,不要直接暴露公网。
-- 随仓库发布的数据是上游 Apache-2.0(许可文本已附),**本项目自己的代码暂时没有选许可证**,这个留给你定。
+- 代码是 MIT;随仓库发布的数据是上游 Apache-2.0(许可文本已附),不是本项目的工作。
+
+## 许可
+
+- **代码**:MIT,见 [LICENSE](LICENSE)。
+- **随仓库发布的评测数据**(`data/typed-decisions/`):上游 [`LocalLLaMA/typed-decisions`](https://huggingface.co/datasets/LocalLLaMA/typed-decisions) 的 Apache-2.0,许可文本见 [data/typed-decisions/LICENSE.txt](data/typed-decisions/LICENSE.txt),出处与逐文件哈希见 [data/typed-decisions/README.md](data/typed-decisions/README.md)。
+- **本仓库训练出的模型权重**(`models/typed-decisions.npz`):属于本项目代码的一部分,按 MIT。
 
 ## 测试
 
