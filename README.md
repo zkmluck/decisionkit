@@ -33,28 +33,43 @@ cd decisionkit
 python -m venv .venv && . .venv/bin/activate    # Windows: .venv\Scripts\Activate.ps1
 pip install -e .
 
+# 仓库里已经带了公开评测集和一份训练好的基线模型,这两条离线就能跑:
+decisionkit evaluate --data data/typed-decisions/test.jsonl --model models/typed-decisions.npz
+decisionkit verify --model models/typed-decisions.npz
+decisionkit serve --model models/typed-decisions.npz --port 8765
+
+# 想从上游重建数据、自己训一遍:
+python tools/import_typed_decisions.py --out data/typed-decisions
+decisionkit train --train data/typed-decisions/train.jsonl \
+                  --validation data/typed-decisions/calibration.jsonl \
+                  --output models/typed-decisions.npz
+
+# 不需要任何数据的自检流程:
 decisionkit synth --out data/synthetic --cases 400
 decisionkit train --train data/synthetic/train.jsonl \
                   --validation data/synthetic/validation.jsonl \
                   --output models/linear.npz
 decisionkit evaluate --data data/synthetic/test.jsonl --model models/linear.npz
-decisionkit verify --model models/linear.npz
-decisionkit serve --model models/linear.npz --port 8765
 ```
 
 不想装包也行:`PYTHONPATH=src python -m decisionkit ...`。
 
 ## 真实数据上的结果
 
-数据用 agent-jev 评测的那份公开集:`LocalLLaMA/typed-decisions` 的官方 train/test 划分,标签是教师给的软分布。导入、训练、评测三条命令:
+数据用 agent-jev 评测的那份公开集:`LocalLLaMA/typed-decisions`(Apache-2.0)的官方 train/test 划分,标签是教师给的软分布。**转换后的文件和一个训练好的基线模型都随仓库发布**,所以下面第一条评测命令离线就能跑;要从上游重建,跑第二段。
 
 ```bash
+# 已经带在仓库里,直接评测:
+decisionkit evaluate --data data/typed-decisions/test.jsonl --model models/typed-decisions.npz
+
+# 想自己重来一遍:
 python tools/import_typed_decisions.py --out data/typed-decisions
 decisionkit train --train data/typed-decisions/train.jsonl \
                   --validation data/typed-decisions/calibration.jsonl \
                   --output models/typed-decisions.npz
-decisionkit evaluate --data data/typed-decisions/test.jsonl --model models/typed-decisions.npz
 ```
+
+数据出处、许可、上游修订版和逐文件 SHA-256 都在 [`data/typed-decisions/README.md`](data/typed-decisions/README.md) 里;重训一次得到的结果与下表中的数字逐位相同。
 
 导入得到 1200 个官方训练案例、400 个官方测试案例,每个案例 5 道题,共 8000 道,零题被跳过。官方划分没有开发集,所以我把训练案例里每第 10 个留作温度校准(120 个),训练用剩下的 1080 个;测试集原样使用,和训练没有任何案例重叠。
 
@@ -143,6 +158,8 @@ HTTP 返回的形状(与 agent-jev 一类接口保持一致):
 | `src/decisionkit/synth.py` | 确定性合成数据与按案例切分 |
 | `src/decisionkit/cli.py` | `synth` / `train` / `evaluate` / `serve` / `verify` |
 | `tools/import_typed_decisions.py` | 把公开的 typed-decisions 数据集转成本项目的 JSONL(带重试与分页) |
+| `data/typed-decisions/` | 随仓库发布的转换后评测数据、出处与许可(Apache-2.0) |
+| `models/typed-decisions.npz` | 随仓库发布的基线模型:在 1080 个案例上训练 16 epoch |
 | `tests/` | 26 个测试:契约拒绝、置换等变、度量手算、训练效果、服务往返、导入器映射 |
 
 ## 限制
@@ -150,7 +167,7 @@ HTTP 返回的形状(与 agent-jev 一类接口保持一致):
 - 模型是**线性打分器 + 哈希特征**,不是 transformer。同义词、长距离推理、跨域迁移都不要指望它。
 - 合成数据自造、无人工金标、无多 seed、无并发压测;这里所有数字都是本机 CPU 上的单次结果。
 - 服务没有鉴权,默认只绑 `127.0.0.1`,不要直接暴露公网。
-- 仓库暂时**没有选许可证**,这个留给你定。
+- 随仓库发布的数据是上游 Apache-2.0(许可文本已附),**本项目自己的代码暂时没有选许可证**,这个留给你定。
 
 ## 测试
 

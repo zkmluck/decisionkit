@@ -1,0 +1,43 @@
+{
+  "dataset": "LocalLLaMA/typed-decisions",
+  "config": "all",
+  "endpoint": "https://datasets-server.huggingface.co/rows",
+  "dataset_revision": "f7a2487edd7a043a5441a5e9ccc7fe5ddbd9ebe8",
+  "license": "apache-2.0",
+  "files": {
+    "train": {
+      "bytes": 3188280,
+      "sha256": "8b8ce77ed7eb5e9d88feed9bfcaef76dfd43945b35d0b642856a354b500499bd"
+    },
+    "calibration": {
+      "bytes": 354424,
+      "sha256": "8e9d390a58ef98b141e6e73e75c59c0077e18f9f9f8715aef3ea0d5d6f2b6dba"
+    },
+    "test": {
+      "bytes": 1179341,
+      "sha256": "1e37028e6803108c89b147417039e81b6938c476e83c91ff9cdec7fe16e67ec8"
+    }
+  },
+  "counts": {
+    "train": 1080,
+    "calibration": 120,
+    "test": 400
+  },
+  "questions": 8000,
+  "type_mapping": {
+    "choice": "choice",
+    "noul": "boolean",
+    "score": "score"
+  },
+  "calibration_split": "every 10th training case",
+  "notes": [
+    "Teacher distributions, not human ground truth.",
+    "The official test split is used as shipped; no case is shared with train.",
+    "Boolean prompts without true/false criteria keep the contract defaults.",
+    "The rows endpoint follows the dataset revision, so this is an import timestamp, not a pin."
+  ],
+  "skipped_questions": {
+    "train": {},
+    "test": {}
+  }
+}

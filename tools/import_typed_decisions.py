@@ -15,6 +15,7 @@ the manifest records that decision.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -26,6 +27,7 @@ from pathlib import Path
 DATASET = 'LocalLLaMA/typed-decisions'
 CONFIG = 'all'
 ENDPOINT = 'https://datasets-server.huggingface.co/rows'
+DATASET_API = 'https://huggingface.co/api/datasets/LocalLLaMA/typed-decisions'
 PAGE = 100
 CALIBRATION_EVERY = 10
 KIND_TO_PRIMITIVE = {'choice': 'choice', 'noul': 'boolean', 'score': 'score'}
@@ -62,6 +64,16 @@ def fetch_split(split: str, page: int = PAGE):
             return
         offset += len(rows)
         time.sleep(PAUSE_S)
+
+
+def dataset_revision() -> str:
+    """The revision the rows endpoint is serving right now; recorded for provenance."""
+    request = urllib.request.Request(DATASET_API, headers={'User-Agent': 'decisionkit'})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.loads(response.read().decode('utf-8')).get('sha', 'unknown')
+    except Exception:
+        return 'unknown'
 
 
 def convert_row(row: dict) -> tuple[dict | None, dict]:
@@ -128,6 +140,11 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
                     encoding='utf-8')
 
 
+def digest(path: Path) -> dict:
+    payload = path.read_bytes()
+    return {'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--out', type=Path, default=Path('data/typed-decisions'))
@@ -148,12 +165,17 @@ def main(argv=None) -> int:
     write_jsonl(args.out / 'test.jsonl', test)
     questions = sum(len(row['request']['questions']) for row in keep + calibration + test)
     manifest = {'dataset': DATASET, 'config': CONFIG, 'endpoint': ENDPOINT,
+                'dataset_revision': dataset_revision(), 'license': 'apache-2.0',
+                'files': {name: digest(args.out / f'{name}.jsonl')
+                          for name in ('train', 'calibration', 'test')},
                 'counts': counts, 'questions': questions,
                 'type_mapping': KIND_TO_PRIMITIVE,
                 'calibration_split': f'every {step}th training case',
                 'notes': ['Teacher distributions, not human ground truth.',
                           'The official test split is used as shipped; no case is shared with train.',
-                          'Boolean prompts without true/false criteria keep the contract defaults.'],
+                          'Boolean prompts without true/false criteria keep the contract defaults.',
+                          'The rows endpoint follows the dataset revision, so this is an import '
+                          'timestamp, not a pin.'],
                 'skipped_questions': {'train': train_skipped, 'test': test_skipped}}
     (args.out / 'manifest.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False),
                                             encoding='utf-8')
